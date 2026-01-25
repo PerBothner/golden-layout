@@ -20,8 +20,7 @@ Golden Layout is a Javascript layout manager which enables you to layout compone
 Except for simple bug-fixes, commits should go into the `dev` branch, which will become version 3.0.  The `dev` branch is quite unstable (and not backwards compatible), but should hopefully stabilize soon.
 
 ## Installation
-The library can be installed into an application package with the npm command:\
-`npm i golden-layout`
+See the instructions [here](docs/index.md#installation--usage).
 
 ## More information
 
