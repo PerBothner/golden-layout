@@ -93,7 +93,7 @@ export class App {
         this._goldenLayout = new GoldenLayout(this._layoutElement, this._bindComponentEventListener, this._unbindComponentEventListener);
 
         this._goldenLayout.resizeWithContainerAutomatically = true;
-        this._goldenLayout.beforeVirtualRectingEvent = (count) => this.handleBeforeVirtualRectingEvent(count);
+        this._goldenLayout.beforeResizingEvent = (count) => this.handleBeforeResizingEvent(count);
         this._goldenLayout.addEventListener('stackHeaderClick', (event) => this.handleStackHeaderClick(event));
 
         const registerNotVirtualComponentTypesButton = document.querySelector('#registerNotVirtualButton') as HTMLButtonElement;
@@ -299,7 +299,7 @@ export class App {
         }
     }
 
-    private handleBindComponentEvent(container: ComponentContainer, itemConfig: ResolvedComponentItemConfig): ComponentContainer.BindableComponent {
+    private handleBindComponentEvent(container: ComponentContainer, itemConfig: ResolvedComponentItemConfig): ComponentContainer.Handle {
         const componentTypeName = ResolvedComponentItemConfig.resolveComponentTypeName(itemConfig);
         if (componentTypeName === undefined) {
             throw new Error('handleBindComponentEvent: Undefined componentTypeName');
@@ -349,7 +349,7 @@ export class App {
         this._boundComponentMap.delete(container);
     }
 
-    private handleBeforeVirtualRectingEvent(count: number) {
+    private handleBeforeResizingEvent(count: number) {
         this._goldenLayoutBoundingClientRect = this._layoutElement.getBoundingClientRect();
         this._lastVirtualRectingCount = count;
         this._lastVirtualRectingCountSpan.innerText = this._lastVirtualRectingCount.toString();
@@ -366,7 +366,7 @@ export class App {
             throw new Error('handleContainerVirtualRectingRequiredEvent: Component does not have a root HTML element');
         }
 
-        const containerBoundingClientRect = container.element.getBoundingClientRect();
+        const containerBoundingClientRect = (container.element as HTMLElement).getBoundingClientRect();
         const left = containerBoundingClientRect.left - this._goldenLayoutBoundingClientRect.left;
         rootElement.style.left = this.numberToPixels(left);
         const top = containerBoundingClientRect.top - this._goldenLayoutBoundingClientRect.top;

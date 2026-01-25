@@ -3,11 +3,11 @@ import { ComponentContainer } from '../container/component-container';
 import { Tab } from '../controls/tab';
 import { UnexpectedNullError } from '../errors/internal-error';
 import { LayoutManager } from '../layout-manager';
-import { DomConstants } from '../utils/dom-constants';
 import { ItemType, JsonValue } from '../utils/types';
-import { getElementWidthAndHeight, setElementHeight, setElementWidth } from '../utils/utils';
 import { ComponentParentableItem } from './component-parentable-item';
 import { ContentItem } from './content-item';
+import { Stack } from './stack';
+import { numberToPixels } from '../utils/utils';
 
 /** @public */
 export class ComponentItem extends ContentItem {
@@ -24,6 +24,8 @@ export class ComponentItem extends ContentItem {
     /** @internal */
     private _tab: Tab;
     /** @internal */
+    private _titleRenderer: Tab.TitleRenderer | undefined;
+    /** @internal */
     private _focused = false;
 
     /** @internal @deprecated use {@link (ComponentItem:class).componentType} */
@@ -32,12 +34,12 @@ export class ComponentItem extends ContentItem {
     get reorderEnabled(): boolean { return this._reorderEnabled; }
     /** @internal */
     get initialWantMaximise(): boolean { return this._initialWantMaximise; }
-    get component(): ComponentContainer.Component | undefined { return this._container.component; }
     get container(): ComponentContainer { return this._container; }
     get parentItem(): ComponentParentableItem { return this._parentItem; }
 
     get headerConfig(): ResolvedHeaderedItemConfig.Header | undefined { return this._headerConfig; }
     get title(): string { return this._title; }
+    get titleRenderer(): Tab.TitleRenderer | undefined { return this._titleRenderer; }
     get tab(): Tab { return this._tab; }
     get focused(): boolean { return this._focused; }
 
@@ -48,8 +50,7 @@ export class ComponentItem extends ContentItem {
         /** @internal */
         private _parentItem: ComponentParentableItem
     ) {
-        super(layoutManager, config, _parentItem, document.createElement('div'));
-
+        super(layoutManager, config, _parentItem, ContentItem.createElement());
         this.isComponent = true;
 
         this._reorderEnabled = config.reorderEnabled;
@@ -57,11 +58,10 @@ export class ComponentItem extends ContentItem {
         this.applyUpdatableConfig(config);
 
         this._initialWantMaximise = config.maximised;
+        const isNewDragSource = _parentItem.element?.parentNode?.parentNode === null;
 
-        const containerElement = document.createElement('div');
-        containerElement.classList.add(DomConstants.ClassName.Content);
-        this.element.appendChild(containerElement);
-        this._container = new ComponentContainer(config, this, layoutManager, containerElement,
+        if (! isNewDragSource) {
+        this._container = new ComponentContainer(config, this, layoutManager,
             (itemConfig) => this.handleUpdateItemConfigEvent(itemConfig),
             () => this.show(),
             () => this.hide(),
@@ -69,11 +69,22 @@ export class ComponentItem extends ContentItem {
             (suppressEvent) => this.blur(suppressEvent),
         );
     }
+    }
 
     /** @internal */
     override destroy(): void {
-        this._container.destroy()
-        super.destroy();
+        const element = this.element;
+        if (element)
+            element.style.opacity = '0.1';
+        const wasDragging = this.layoutManager.currentlyDragging();
+        this.layoutManager.deferIfDragging((cancel) => {
+            if (element)
+                element.style.opacity = '';
+            if (! cancel && ! wasDragging) {
+                this._container.destroy();
+                super.destroy();
+            }
+        });
     }
 
     applyUpdatableConfig(config: ResolvedComponentItemConfig): void {
@@ -82,7 +93,7 @@ export class ComponentItem extends ContentItem {
     }
 
     toConfig(): ResolvedComponentItemConfig {
-        const stateRequestEvent = this._container.stateRequestEvent;
+        const stateRequestEvent = this._container?.stateRequestEvent;
         const state = stateRequestEvent === undefined ? this._container.state : stateRequestEvent();
 
         const result: ResolvedComponentItemConfig = {
@@ -116,13 +127,17 @@ export class ComponentItem extends ContentItem {
     // Used by Drag Proxy
     /** @internal */
     enterDragMode(width: number, height: number): void {
-        setElementWidth(this.element, width);
-        setElementHeight(this.element, height);
+        const style = this.element.style;
+        style.height = `${height}px`;
+        style.width = `${width}px`;
         this._container.enterDragMode(width, height);
     }
 
     /** @internal */
     exitDragMode(): void {
+        const style = this.element.style;
+        style.height = '';
+        style.width = '';
         this._container.exitDragMode();
     }
 
@@ -143,13 +158,8 @@ export class ComponentItem extends ContentItem {
     }
 
     /** @internal */
-    override updateSize(force: boolean): void {
-        this.updateNodeSize(force);
-    }
-
-    /** @internal */
     override init(): void {
-        this.updateNodeSize(false);
+        this.updateNodeSize();
 
         super.init();
         this._container.emit('open');
@@ -169,6 +179,12 @@ export class ComponentItem extends ContentItem {
         this.emit('stateChanged');
     }
 
+    setTitleRenderer(renderer: Tab.TitleRenderer | undefined): void {
+        this._titleRenderer = renderer;
+        this.emit('titleChanged', this._title);
+        this.emit('stateChanged');
+    }
+
     setTab(tab: Tab): void {
         this._tab = tab;
         this.emit('tab', tab)
@@ -177,13 +193,11 @@ export class ComponentItem extends ContentItem {
 
     /** @internal */
     override hide(): void {
-        super.hide();
         this._container.setVisibility(false);
     }
 
     /** @internal */
     override show(): void {
-        super.show();
         this._container.setVisibility(true);
     }
 
@@ -233,13 +247,46 @@ export class ComponentItem extends ContentItem {
     }
 
     /** @internal */
-    private updateNodeSize(force: boolean): void {
-        if (this.element.style.display !== 'none') {
-            // Do not update size of hidden components to prevent unwanted reflows
+    updateComponentSize(): void {
+        // OLD:  this._container.setSizeToNodeSize(width, height, force)
+        const contentInset = this.layoutManager.layoutConfig.dimensions.contentInset;
+        this.element.style.margin = contentInset ? `${contentInset}px` : '';
 
-            const { width, height } = getElementWidthAndHeight(this.element);
-            this._container.setSizeToNodeSize(width, height, force);
+        const contentElement = this.container.contentElement;
+        const componentElement = this.container.element;
+        if (contentElement instanceof HTMLElement
+            // && contentElement.style.display !== 'none'
+            && this.parentItem instanceof Stack) {
+            // Do not update size of hidden components to prevent unwanted reflows
+            const stackElement = this.parentItem.element;
+            let stackBounds;
+            const itemElement = this.element;
+            const itemBounds = itemElement.getBoundingClientRect();
+            const layoutContainer = this.layoutManager.container;
+            const layoutBounds = layoutContainer.getBoundingClientRect();
+            const mainZoom = this.layoutManager._scale;
+            const itemZoom = mainZoom * this._container._scale;
+            if (componentElement instanceof HTMLElement
+                && contentElement !== componentElement) {
+                stackBounds = stackElement.getBoundingClientRect();
+                componentElement.style.top = numberToPixels((stackBounds.top - layoutBounds.top) / mainZoom);
+                componentElement.style.left = numberToPixels((stackBounds.left - layoutBounds.left) / mainZoom);
+                componentElement.style.width = numberToPixels(stackBounds.width / itemZoom);
+                componentElement.style.height = numberToPixels(stackBounds.height / itemZoom);
+            } else {
+                stackBounds = layoutBounds;
+            }
+            contentElement.style.position = "absolute";
+            contentElement.style.top = numberToPixels((itemBounds.top - stackBounds.top) / mainZoom);
+            contentElement.style.left = numberToPixels((itemBounds.left - stackBounds.left) / mainZoom);
+            contentElement.style.width = numberToPixels(itemBounds.width / itemZoom);
+            contentElement.style.height = numberToPixels(itemBounds.height / itemZoom);
         }
+        else console.log('updateNodeSize ignored');
+    }
+
+    updateNodeSize(): void {
+        this.layoutManager.addVirtualSizedContainer(this.container);
     }
 }
 

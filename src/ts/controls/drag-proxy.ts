@@ -66,56 +66,41 @@ export class DragProxy extends EventEmitter {
 
         this.determineMinMaxXY();
         this._layoutManager.calculateItemAreas();
-        this.setDropPosition(x, y);
+        const scale = this._layoutManager._scale;
+        this.setDropPosition(x / scale, y / scale);
     }
 
     /** Create Stack-like structure to contain the dragged component */
     private createDragProxyElements(initialX: number, initialY: number): void {
-        this._element = document.createElement('div');
-        this._element.classList.add(DomConstants.ClassName.DragProxy);
-        const headerElement = document.createElement('div');
-        headerElement.classList.add(DomConstants.ClassName.Header);
-        const tabsElement = document.createElement('div');
-        tabsElement.classList.add(DomConstants.ClassName.Tabs);
-        const tabElement = document.createElement('div');
-        tabElement.classList.add(DomConstants.ClassName.Tab);
-        const titleElement = document.createElement('span');
-        titleElement.classList.add(DomConstants.ClassName.Title);
-        tabElement.appendChild(titleElement);
-        tabsElement.appendChild(tabElement);
-        headerElement.appendChild(tabsElement);
-
-        this._proxyContainerElement = document.createElement('div');
-        this._proxyContainerElement.classList.add(DomConstants.ClassName.Content);
-
-        this._element.appendChild(headerElement);
-        this._element.appendChild(this._proxyContainerElement);
-
+        this._element = this._layoutManager.makeDragImage(true, this._componentItem);
+        this._proxyContainerElement = this._element.lastChild as HTMLElement;
         if (this._originalParent instanceof Stack && this._originalParent.headerShow) {
             this._sided = this._originalParent.headerLeftRightSided;
             this._element.classList.add('lm_' + this._originalParent.headerSide);
             if ([Side.right, Side.bottom].indexOf(this._originalParent.headerSide) >= 0) {
-                this._proxyContainerElement.insertAdjacentElement('afterend', headerElement);
+              //this._proxyContainerElement.insertAdjacentElement('afterend', headerElement);
             }
         }
         this._element.style.left = numberToPixels(initialX);
         this._element.style.top = numberToPixels(initialY);
-        tabElement.setAttribute('title', this._componentItem.title);
-        titleElement.insertAdjacentText('afterbegin', this._componentItem.title);
+        //tabElement.setAttribute('title', this._componentItem.title);
+        //titleElement.insertAdjacentText('afterbegin', this._componentItem.title);
         this._proxyContainerElement.appendChild(this._componentItem.element);
     }
 
     private determineMinMaxXY(): void {
-        const groundItem = this._layoutManager.groundItem;
+        const lm = this._layoutManager;
+        const groundItem = lm.groundItem;
         if (groundItem === undefined) {
             throw new UnexpectedUndefinedError('DPDMMXY73109');
         } else {
             const groundElement = groundItem.element;
             const rect = groundElement.getBoundingClientRect();
-            this._minX = rect.left + document.body.scrollLeft;
-            this._minY = rect.top + document.body.scrollTop;
-            this._maxX = this._minX + rect.width;
-            this._maxY = this._minY + rect.height;
+            const scale = lm._scale;
+            this._minX = rect.left / scale + document.body.scrollLeft;
+            this._minY = rect.top / scale  + document.body.scrollTop;
+            this._maxX = this._minX + rect.width / scale ;
+            this._maxY = this._minY + rect.height / scale ;
         }
     }
 
@@ -163,8 +148,9 @@ export class DragProxy extends EventEmitter {
 
         this._element.style.left = numberToPixels(x);
         this._element.style.top = numberToPixels(y);
-        this._area = this._layoutManager.getArea(x, y);
+        // FIXME set component.contentElement postion to that of this._proxyContainerElement
 
+        this._area = this._layoutManager.getArea(x, y);
         if (this._area !== null) {
             this._lastValidArea = this._area;
             this._area.contentItem.highlightDropZone(x, y, this._area);
